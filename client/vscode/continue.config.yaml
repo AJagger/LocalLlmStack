@@ -1,0 +1,24 @@
+name: Main Config
+version: 1.0.0
+schema: v1
+models:
+  - name: General
+    provider: openai
+    model: general
+    apiBase: http://localhost:8001/v1
+    apiKey: sk-xxxx
+    defaultCompletionOptions:
+      contextLength: 16384
+      temperature: 0.6
+      maxTokens: 1024
+    roles:
+      - chat
+      - edit
+      - autocomplete
+      - apply
+    capabilities:
+        - tool_use
+    promptTemplates: 
+      autocomplete: |
+        <|fim_prefix|>{{{prefix}}}<|fim_suffix|>{{{suffix}}}<|fim_middle|>
+

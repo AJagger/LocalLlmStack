@@ -55,6 +55,7 @@ services:
       
   vllm-autocomplete:
     <<: *vllm-common
+    image: vllm/vllm-openai:v0.6.6
     shm_size: 8gb
     command:
       - --model=/models/Qwen2.5-Coder-1.5B
