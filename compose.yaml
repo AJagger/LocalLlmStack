@@ -1,0 +1,80 @@
+services:
+  vllm-general:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - D:/Models:/models:ro
+    command:
+      - --model=/models/Qwen3.6-27B
+      - --served-model-name=general
+      - --max-model-len=16000
+      - --gpu-memory-utilization=0.9
+      - --max-num-seqs=8
+      - --host=0.0.0.0
+      - --port=8000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - local-llm-stack
+    restart: unless-stopped
+    profiles:
+      - donotstart
+  vllm-autocomplete:
+    image: vllm/vllm-openai:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - D:/Models:/models:ro
+    command:
+      - --model=/models/Qwen3.5-2B
+      - --served-model-name=autocomplete
+      - --max-model-len=16000
+      - --gpu-memory-utilization=0.9
+      - --max-num-seqs=8
+      - --host=0.0.0.0
+      - --port=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 60s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - local-llm-stack
+    restart: unless-stopped
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    environment:
+      - OPENAI_API_BASE_URL=http://vllm-autocomplete:8000/v1
+      - OPENAI_API_KEY=sk-placeholder
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      vllm-autocomplete:
+        condition: service_healthy
+    networks:
+      - local-llm-stack
+    restart: unless-stopped
+
+volumes:
+  open-webui-data:
+
+networks:
+  local-llm-stack:
+    driver: bridge
+
