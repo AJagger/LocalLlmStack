@@ -1,24 +1,65 @@
-name: Main Config
+name: Local vLLM
 version: 1.0.0
 schema: v1
+
 models:
-  - name: General
+  # Main model used by Continue for Chat, Agent, Edit, and Apply.
+  - name: Local General
     provider: openai
     model: general
-    apiBase: http://localhost:8001/v1
-    apiKey: sk-xxxx
-    defaultCompletionOptions:
-      contextLength: 16384
-      temperature: 0.6
-      maxTokens: 1024
+    apiBase: http://127.0.0.1:8001/v1
+    apiKey: sk-local
     roles:
       - chat
       - edit
-      - autocomplete
       - apply
     capabilities:
-        - tool_use
-    promptTemplates: 
+      - tool_use
+    defaultCompletionOptions:
+      contextLength: 16384
+      temperature: 0.2
+      maxTokens: 4096
+
+  # Dedicated fill-in-the-middle model used only for tab autocomplete.
+  - name: Local Autocomplete
+    provider: openai
+    model: autocomplete
+    apiBase: http://127.0.0.1:8002/v1
+    apiKey: sk-local
+    roles:
+      - autocomplete
+
+    # Use the text-completions endpoint for the Qwen base/FIM model.
+    useLegacyCompletionsEndpoint: true
+    maxStopWords: 9
+
+    defaultCompletionOptions:
+      contextLength: 8192
+      temperature: 0.01
+      maxTokens: 256
+      stop:
+        - <|endoftext|>
+        - <|fim_prefix|>
+        - <|fim_middle|>
+        - <|fim_suffix|>
+        - <|fim_pad|>
+        - <|repo_name|>
+        - <|file_sep|>
+        - <|im_start|>
+        - <|im_end|>
+
+    autocompleteOptions:
+      debounceDelay: 250
+      maxPromptTokens: 4096
+      modelTimeout: 5000
+      maxSuffixPercentage: 0.2
+      prefixPercentage: 0.3
+      onlyMyCode: true
+      useCache: true
+      useImports: true
+      useRecentlyEdited: true
+      useRecentlyOpened: true
+
+    promptTemplates:
       autocomplete: |
         <|fim_prefix|>{{{prefix}}}<|fim_suffix|>{{{suffix}}}<|fim_middle|>
-
