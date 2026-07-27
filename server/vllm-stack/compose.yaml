@@ -6,7 +6,7 @@ x-vllm-healthcheck: &vllm-healthcheck
   start_period: 180s
 
 x-common-vllm-config: &vllm-common
-  image: vllm/vllm-openai:latest
+  image: vllm/vllm-openai:v0.26.0
   expose:
     - "8000"
   networks:
@@ -67,7 +67,7 @@ services:
       - --port=8000
               
   openwebui:
-    image: ghcr.io/open-webui/open-webui:main
+    image: ghcr.io/open-webui/open-webui:v0.11.0
     ports:
       - "${OPENWEBUI_PORT:-3000}:8080"
     environment:
