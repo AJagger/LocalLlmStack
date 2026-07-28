@@ -86,7 +86,7 @@ services:
     profiles:
       - all-models
       
-    vllm-vision:
+  vllm-vision:
     <<: *vllm-common
     shm_size: 12gb
     command:
@@ -145,8 +145,8 @@ services:
       VISION_MODEL: http://vllm-vision:8000
     volumes:
       - type: bind
-        source: ./internal-model-router.nginx.conf
-        target: /etc/nginx/conf.d/default.conf
+        source: ./internal-model-router.nginx.conf.template
+        target: /etc/nginx/templates/default.conf.template
         read_only: true
     expose:
       - "8101"
