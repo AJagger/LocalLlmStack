@@ -42,7 +42,7 @@ services:
       - --model=/models/Qwen3.6-27B-NVFP4
       - --served-model-name=general
       - --max-model-len=16384
-      - --gpu-memory-utilization=0.75
+      - --gpu-memory-utilization=0.84
       - --max-num-seqs=8
       - --reasoning-parser=qwen3
       - --enable-auto-tool-choice
@@ -210,19 +210,19 @@ services:
       OPENAI_API_BASE_URLS: http://external-model-endpoint:8000/v1
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
       OPENAI_API_CONFIGS: >-
-      {
-        "0": {
-          "enable": true,
-          "model_ids": [
-            "general",
-            "small-chat",
-            "vision"
-          ],
-          "tags": [
-            "Local"
-          ]
+        {
+          "0": {
+            "enable": true,
+            "model_ids": [
+              "general",
+              "small-chat",
+              "vision"
+            ],
+            "tags": [
+              "Local"
+            ]
+          }
         }
-      }
       TASK_MODEL_EXTERNAL: general
       OFFLINE_MODE: true
       HF_HUB_OFFLINE: "1"
@@ -242,6 +242,7 @@ services:
 
 volumes:
   open-webui-data:
+  ollama-autocomplete-data:
 
 networks:
   exposed:
