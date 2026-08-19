@@ -15,7 +15,7 @@ models:
     capabilities:
       - tool_use
     defaultCompletionOptions:
-      contextLength: 16384
+      contextLength: 131072
       temperature: 0.2
       maxTokens: 4096
 
