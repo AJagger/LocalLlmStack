@@ -1,4 +1,4 @@
-x-vllm-healthcheck: &vllm-healthcheck
+x-healthcheck: &healthcheck
   test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
   interval: 30s
   timeout: 5s
@@ -31,7 +31,42 @@ x-common-vllm-config: &vllm-common
     options:
       max-size: "50m"
       max-file: "3"
-  healthcheck: *vllm-healthcheck
+  healthcheck: *healthcheck
+  restart: unless-stopped
+
+x-common-llamacpp-environment: &llamacpp-common-environment
+  LLAMA_ARG_HOST: 0.0.0.0
+  LLAMA_ARG_PORT: "8000"
+  LLAMA_ARG_OFFLINE: "true"
+  LLAMA_ARG_UI: "false"                # Disable llama browser UI - we're using Open WebUI
+  LLAMA_ARG_CONT_BATCHING: "true"
+  LLAMA_ARG_CACHE_PROMPT: "true"
+  LLAMA_ARG_ENDPOINT_METRICS: "true"
+
+x-common-llamacpp-config: &llamacpp-common
+  image: ghcr.io/ggml-org/llama.cpp:server-cuda12-b10499
+  expose:
+    - "8000"
+  networks:
+    - internal-llm-stack
+  volumes:
+    - type: bind
+      source: ${MODEL_DIR:?MODEL_DIR must be set in .env}
+      target: /models
+      read_only: true
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: all
+            capabilities: [gpu]
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+  healthcheck: *healthcheck
   restart: unless-stopped
 
 services:
@@ -50,8 +85,40 @@ services:
       - --host=0.0.0.0
       - --port=8000
     healthcheck:
-      <<: *vllm-healthcheck
+      <<: *healthcheck
       start_period: 600s  #Larger model requires a longer startup period
+    profiles:
+      - disabled
+
+  llamacpp-general:
+    <<: *llamacpp-common
+    environment:
+      <<: *llamacpp-common-environment
+      # --- Model configuration ---
+      LLAMA_ARG_MODEL: /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q6_K.gguf
+      LLAMA_ARG_ALIAS: general
+      # --- Context & Concurrency configuration ---
+      LLAMA_ARG_CTX_SIZE: "131072"     # Allocate 128K context
+      LLAMA_ARG_N_PARALLEL: "1"        # Concurrent slots. Limit to 1 request (i.e. no concurrency)
+      # --- System resource configuration ---
+      LLAMA_ARG_N_GPU_LAYERS: "all"    # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT: "off"             # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT_TARGET: "1024"     # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
+      LLAMA_ARG_KV_OFFLOAD: "true"     # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
+      LLAMA_ARG_CACHE_TYPE_K: q8_0     # Use q8_0 quantization for storing key cache
+      LLAMA_ARG_CACHE_TYPE_V: q8_0     # Use q8_0 quantization for storing value cache
+      LLAMA_ARG_FLASH_ATTN: "on"       # Flash attention is an optimisation that increases memory efficiency
+      LLAMA_ARG_LOAD_MODE: auto        # llama chooses model loading mode
+      # --- Chat, tools and reasoning ---
+      LLAMA_ARG_JINJA: "true"
+      LLAMA_ARG_REASONING: auto
+      LLAMA_ARG_THINK: deepseek
+      # --- Text-only configuration ---
+      # LLAMA_ARG_MMPROJ_AUTO: "false"
+      # LLAMA_ARG_MMPROJ: /models/Qwen3.8-27B-GGUF/mmproj-Qwen3.8-27B-BF16.gguf
+    healthcheck:
+      <<: *healthcheck
+      start_period: 600s  # Larger model requires a longer startup period
       
   vllm-autocomplete:
     <<: *vllm-common
@@ -67,6 +134,28 @@ services:
       - --port=8000
     profiles:
       - disabled
+
+  llamacpp-autocomplete:
+    <<: *llamacpp-common
+    environment:
+      <<: *llamacpp-common-environment  
+      # --- Model configuration ---
+      LLAMA_ARG_MODEL: /models/Qwen2.5-Coder-1.5B-Q8_0-GGUF/qwen2.5-coder-1.5b-q8_0.gguf
+      LLAMA_ARG_ALIAS: autocomplete
+      # --- Context & Concurrency configuration ---  
+      LLAMA_ARG_CTX_SIZE: "8192"       # Allocate 8K context        
+      LLAMA_ARG_N_PARALLEL: "1"        # Concurrent slots. Limit to 1 request (i.e. no concurrency)
+      # --- System resource configuration ---  
+      LLAMA_ARG_N_GPU_LAYERS: "all"    # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT: "off"             # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT_TARGET: "1024"     # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
+      LLAMA_ARG_KV_OFFLOAD: "true"     # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
+      LLAMA_ARG_CACHE_TYPE_K: q8_0     # Use q8_0 quantization for storing key cache
+      LLAMA_ARG_CACHE_TYPE_V: q8_0     # Use q8_0 quantization for storing value cache
+      LLAMA_ARG_FLASH_ATTN: "on"       # Flash attention is an optimisation that increases memory efficiency
+      LLAMA_ARG_LOAD_MODE: auto        # llama chooses model loading mode
+      # --- Text-only configuration ---
+      LLAMA_ARG_MMPROJ_AUTO: "false"
 
   vllm-quick-chat:
     <<: *vllm-common
@@ -84,7 +173,7 @@ services:
       - --host=0.0.0.0
       - --port=8000
     profiles:
-      - all-models
+      - extended-models
       
   vllm-vision:
     <<: *vllm-common
@@ -100,47 +189,16 @@ services:
       - --host=0.0.0.0
       - --port=8000
     healthcheck:
-      <<: *vllm-healthcheck
+      <<: *healthcheck
       start_period: 600s
     profiles:
-      - all-models
-
-  ollama-autocomplete:
-    image: ollama/ollama:0.32.5
-    expose:
-      - "11434"
-    environment:
-      OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_NO_CLOUD: "1"
-      OLLAMA_CONTEXT_LENGTH: "8192"
-      OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_KEEP_ALIVE: "-1"
-      OLLAMA_FLASH_ATTENTION: "1"
-      OLLAMA_KV_CACHE_TYPE: "q8_0"
-    volumes:
-      - ollama-autocomplete-data:/root/.ollama
-      - ./ollama:/config:ro
-      - ${MODEL_DIR:?MODEL_DIR must be set in .env}:/models:ro
-    networks:
-      - internal-llm-stack
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - OLLAMA_HOST=127.0.0.1:11434 ollama show autocomplete >/dev/null 2>&1 || exit 1
+      - extended-models
 
   internal-model-router:
     image: nginx:alpine
     environment:
-      GENERAL_MODEL: http://vllm-general:8000
-      AUTOCOMPLETE_MODEL: http://ollama-autocomplete:11434
+      GENERAL_MODEL: http://llamacpp-general:8000
+      AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:11434
       QUICK_CHAT_MODEL: http://vllm-quick-chat:8000
       VISION_MODEL: http://vllm-vision:8000
     volumes:
@@ -152,7 +210,7 @@ services:
       - "8101"
       - "8102"
       - "8103"
-      - "8014"
+      - "8104"
     networks:
       - internal-llm-stack
     logging:
@@ -242,7 +300,6 @@ services:
 
 volumes:
   open-webui-data:
-  ollama-autocomplete-data:
 
 networks:
   exposed:
