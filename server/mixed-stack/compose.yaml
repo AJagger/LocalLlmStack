@@ -198,7 +198,7 @@ services:
     image: nginx:alpine
     environment:
       GENERAL_MODEL: http://llamacpp-general:8000
-      AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:11434
+      AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:8000
       QUICK_CHAT_MODEL: http://vllm-quick-chat:8000
       VISION_MODEL: http://vllm-vision:8000
     volumes:
