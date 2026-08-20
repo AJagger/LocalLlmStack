@@ -221,7 +221,7 @@ services:
     restart: unless-stopped
 
   internal-model-gateway:
-    image: docker.litellm.ai/berriai/litellm:latest
+    image: litellm/litellm:v1.95.1
     command:
       - --config
       - /app/config.yaml
