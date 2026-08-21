@@ -1,8 +1,9 @@
-name: Local LLM Mixed Stack
+name: Local LLM Stack
 version: 1.0.0
 schema: v1
 
 models:
+  # Main model used by Continue for Chat, Agent, Edit, and Apply
   - name: Local General
     provider: openai
     model: general
@@ -15,10 +16,11 @@ models:
     capabilities:
       - tool_use
     defaultCompletionOptions:
-      contextLength: 131072
+      contextLength: 16384              # deliberate 16K client-side request cap even though the server supports 128K.
       temperature: 0.2
       maxTokens: 4096
 
+  # Dedicated fill-in-the-middle model used only for tab autocomplete.
   - name: Local Autocomplete
     provider: openai
     model: autocomplete
@@ -26,7 +28,7 @@ models:
     apiKey: sk-change-this-local-key
     roles:
       - autocomplete
-    useLegacyCompletionsEndpoint: true
+    useLegacyCompletionsEndpoint: true  # Use the text-completions endpoint for the Qwen base/FIM model.
     maxStopWords: 9
     defaultCompletionOptions:
       contextLength: 8192

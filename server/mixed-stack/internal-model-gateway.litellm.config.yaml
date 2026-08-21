@@ -1,27 +1,29 @@
+# Stable public model names mapped to role-specific routes on the internal NGINX router. 
+# Consumers use these names without needing to know which serving engine or model container currently implements each role.
 model_list:
   - model_name: general
     litellm_params:
       model: openai/general
       api_base: http://internal-model-router:8101/v1
-      api_key: sk-internal
+      api_key: sk-internal  # Placeholder
 
   - model_name: autocomplete
     litellm_params:
       model: openai/autocomplete
       api_base: http://internal-model-router:8102/v1
-      api_key: sk-internal
+      api_key: sk-internal  # Placeholder
 
   - model_name: quick-chat
     litellm_params:
       model: openai/quick-chat
       api_base: http://internal-model-router:8103/v1
-      api_key: sk-internal
+      api_key: sk-internal  # Placeholder
 
   - model_name: vision
     litellm_params:
       model: openai/vision
       api_base: http://internal-model-router:8104/v1
-      api_key: sk-internal
+      api_key: sk-internal  # Placeholder
 
 litellm_settings:
-  drop_params: true
+  drop_params: false  # Fail if backend does not support all requested parameters. Set to true to ignore unsupported parameters (i.e. in prod).

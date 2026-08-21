@@ -1,10 +1,51 @@
-x-healthcheck: &healthcheck
-  test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+# =============================================================================
+# Common configuration
+# =============================================================================
+
+# Apply bounded Docker JSON-file logging to every long-running service so that
+# local logs cannot grow without limit.
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+# llama.cpp and vLLM both expose an HTTP readiness endpoint on /health.
+x-model-healthcheck: &model-healthcheck
+  test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
   interval: 30s
   timeout: 5s
   retries: 5
   start_period: 180s
 
+# NGINX configurations expose a local-only health listener on port 8080.
+x-nginx-healthcheck: &nginx-healthcheck
+  test:
+    [
+      "CMD-SHELL",
+      "wget -q -O - http://127.0.0.1:8080/health | grep -q '^healthy$'",
+    ]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 30s
+
+# LiteLLM's readiness endpoint verifies that the gateway process and
+# configuration are ready without sending an inference request to every model.
+x-litellm-readiness: &litellm-readiness
+  test:
+    [
+      "CMD",
+      "python",
+      "-c",
+      "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/readiness', timeout=5)",
+    ]
+  interval: 30s
+  timeout: 5s
+  retries: 5
+  start_period: 60s
+
+# Shared vLLM container configuration
 x-common-vllm-config: &vllm-common
   image: vllm/vllm-openai:v0.26.0
   expose:
@@ -17,8 +58,8 @@ x-common-vllm-config: &vllm-common
       target: /models
       read_only: true
   environment:
-    HF_HUB_OFFLINE: "1"
-    VLLM_NO_USAGE_STATS: "1"
+    HF_HUB_OFFLINE: "1"               # Prevent Hugging Face network access in the offline stack.
+    VLLM_NO_USAGE_STATS: "1"          # Disable vLLM usage-statistics reporting.
   deploy:
     resources:
       reservations:
@@ -26,23 +67,22 @@ x-common-vllm-config: &vllm-common
           - driver: nvidia
             count: all
             capabilities: [gpu]
-  logging:
-    driver: json-file
-    options:
-      max-size: "50m"
-      max-file: "3"
-  healthcheck: *healthcheck
+  logging: *json-logging
+  healthcheck: *model-healthcheck
   restart: unless-stopped
 
+# Shared llama.cpp environment variables.
+# Separated out from the common llama.cpp config so that they aren't overwritten by the model-specific environment variables below.
 x-common-llamacpp-environment: &llamacpp-common-environment
   LLAMA_ARG_HOST: 0.0.0.0
   LLAMA_ARG_PORT: "8000"
-  LLAMA_ARG_OFFLINE: "true"
-  LLAMA_ARG_UI: "false"                # Disable llama browser UI - we're using Open WebUI
-  LLAMA_ARG_CONT_BATCHING: "true"
-  LLAMA_ARG_CACHE_PROMPT: "true"
-  LLAMA_ARG_ENDPOINT_METRICS: "true"
+  LLAMA_ARG_OFFLINE: "true"           # Do not download models or metadata at runtime.
+  LLAMA_ARG_UI: "false"               # Disable llama browser UI - we're using Open WebUI
+  LLAMA_ARG_CONT_BATCHING: "true"     # Allow continuous request batching where slots permit it.
+  LLAMA_ARG_CACHE_PROMPT: "true"      # Reuse matching prompt prefixes when present in the RAM cache.
+  LLAMA_ARG_ENDPOINT_METRICS: "true"  # Enable Prometheus-compatible metrics.
 
+# Shared llama.cpp container configuration
 x-common-llamacpp-config: &llamacpp-common
   image: ghcr.io/ggml-org/llama.cpp:server-cuda12-b10499
   expose:
@@ -61,35 +101,17 @@ x-common-llamacpp-config: &llamacpp-common
           - driver: nvidia
             count: all
             capabilities: [gpu]
-  logging:
-    driver: json-file
-    options:
-      max-size: "50m"
-      max-file: "3"
-  healthcheck: *healthcheck
+  logging: *json-logging
+  healthcheck: *model-healthcheck
   restart: unless-stopped
 
 services:
-  vllm-general:
-    <<: *vllm-common
-    shm_size: 16gb
-    command:
-      - --model=/models/Qwen3.6-27B-NVFP4
-      - --served-model-name=general
-      - --max-model-len=16384
-      - --gpu-memory-utilization=0.84
-      - --max-num-seqs=8
-      - --reasoning-parser=qwen3
-      - --enable-auto-tool-choice
-      - --tool-call-parser=qwen3_coder
-      - --host=0.0.0.0
-      - --port=8000
-    healthcheck:
-      <<: *healthcheck
-      start_period: 600s  #Larger model requires a longer startup period
-    profiles:
-      - disabled
+  # =============================================================================
+  # Core models
+  # =============================================================================
 
+  # Primary general-purpose model. 
+  # This service starts first and has first claim on GPU resources; the rest of the active stack waits for it to become healthy.
   llamacpp-general:
     <<: *llamacpp-common
     environment:
@@ -98,65 +120,63 @@ services:
       LLAMA_ARG_MODEL: /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q6_K.gguf
       LLAMA_ARG_ALIAS: general
       # --- Context & Concurrency configuration ---
-      LLAMA_ARG_CTX_SIZE: "131072"     # Allocate 128K context
-      LLAMA_ARG_N_PARALLEL: "1"        # Concurrent slots. Limit to 1 request (i.e. no concurrency)
-      # --- System resource configuration ---
-      LLAMA_ARG_N_GPU_LAYERS: "all"    # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT: "off"             # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT_TARGET: "1024"     # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
-      LLAMA_ARG_KV_OFFLOAD: "true"     # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
-      LLAMA_ARG_CACHE_TYPE_K: q8_0     # Use q8_0 quantization for storing key cache
-      LLAMA_ARG_CACHE_TYPE_V: q8_0     # Use q8_0 quantization for storing value cache
-      LLAMA_ARG_FLASH_ATTN: "on"       # Flash attention is an optimisation that increases memory efficiency
-      LLAMA_ARG_LOAD_MODE: auto        # llama chooses model loading mode
+      LLAMA_ARG_CTX_SIZE: "131072"      # Allocate 128K context
+      LLAMA_ARG_N_PARALLEL: "1"         # Concurrent slots. Limit to 1 request (i.e. no concurrency)
+      # --- System resource configuration --- 
+      LLAMA_ARG_N_GPU_LAYERS: "all"     # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT: "off"              # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT_TARGET: "1024"      # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
+      LLAMA_ARG_KV_OFFLOAD: "true"      # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
+      LLAMA_ARG_CACHE_TYPE_K: q8_0      # Use q8_0 quantization for storing key cache
+      LLAMA_ARG_CACHE_TYPE_V: q8_0      # Use q8_0 quantization for storing value cache
+      LLAMA_ARG_FLASH_ATTN: "on"        # Flash attention is an optimisation that increases memory efficiency
+      LLAMA_ARG_LOAD_MODE: auto         # llama chooses model loading mode
+      LLAMA_ARG_CACHE_RAM: "4096"       # Maximum host RAM, in MiB, for reusable prompt/KV snapshots. Remains in system memory and does not replace the active GPU KV cache.
       # --- Chat, tools and reasoning ---
-      LLAMA_ARG_JINJA: "true"
-      LLAMA_ARG_REASONING: auto
-      LLAMA_ARG_THINK: deepseek
+      LLAMA_ARG_JINJA: "true"           # Enable model-provided Jinja chat templates and tool formatting. 
+      LLAMA_ARG_REASONING: auto         # Automatically apply the model's supported reasoning format.
+      LLAMA_ARG_THINK: deepseek         # Return extracted reasoning in the OpenAI-compatible reasoning_content field
       # --- Text-only configuration ---
-      # LLAMA_ARG_MMPROJ_AUTO: "false"
+      # LLAMA_ARG_MMPROJ_AUTO: "true"   # Load the matching projector so the general model can accept image content.
       # LLAMA_ARG_MMPROJ: /models/Qwen3.8-27B-GGUF/mmproj-Qwen3.8-27B-BF16.gguf
     healthcheck:
-      <<: *healthcheck
-      start_period: 600s  # Larger model requires a longer startup period
-      
-  vllm-autocomplete:
-    <<: *vllm-common
-    image: vllm/vllm-openai:v0.6.6
-    shm_size: 8gb
-    command:
-      - --model=/models/Qwen2.5-Coder-1.5B
-      - --served-model-name=autocomplete
-      - --max-model-len=8192
-      - --gpu-memory-utilization=0.2
-      - --max-num-seqs=16
-      - --host=0.0.0.0
-      - --port=8000
-    profiles:
-      - disabled
+      <<: *model-healthcheck
+      start_period: 600s                # Large model startup may take approximately five minutes.
 
+  # Dedicated fill-in-the-middle model used by IDE autocomplete.
   llamacpp-autocomplete:
     <<: *llamacpp-common
     environment:
-      <<: *llamacpp-common-environment  
+      <<: *llamacpp-common-environment
       # --- Model configuration ---
       LLAMA_ARG_MODEL: /models/Qwen2.5-Coder-1.5B-Q8_0-GGUF/qwen2.5-coder-1.5b-q8_0.gguf
       LLAMA_ARG_ALIAS: autocomplete
       # --- Context & Concurrency configuration ---  
-      LLAMA_ARG_CTX_SIZE: "8192"       # Allocate 8K context        
-      LLAMA_ARG_N_PARALLEL: "1"        # Concurrent slots. Limit to 1 request (i.e. no concurrency)
+      LLAMA_ARG_CTX_SIZE: "8192"        # Allocate 8K context        
+      LLAMA_ARG_N_PARALLEL: "1"         # Concurrent slots. Limit to 1 request (i.e. no concurrency)
       # --- System resource configuration ---  
-      LLAMA_ARG_N_GPU_LAYERS: "all"    # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT: "off"             # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT_TARGET: "1024"     # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
-      LLAMA_ARG_KV_OFFLOAD: "true"     # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
-      LLAMA_ARG_CACHE_TYPE_K: q8_0     # Use q8_0 quantization for storing key cache
-      LLAMA_ARG_CACHE_TYPE_V: q8_0     # Use q8_0 quantization for storing value cache
-      LLAMA_ARG_FLASH_ATTN: "on"       # Flash attention is an optimisation that increases memory efficiency
-      LLAMA_ARG_LOAD_MODE: auto        # llama chooses model loading mode
+      LLAMA_ARG_N_GPU_LAYERS: "all"     # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
+      LLAMA_ARG_FIT: "on"               # Spill into system RAM and CPU if necessary.
+      LLAMA_ARG_FIT_TARGET: "1024"      # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model
+      LLAMA_ARG_KV_OFFLOAD: "false"     # Store KV within System RAM (true = offload TO GPU, false = remain in system RAM)
+      LLAMA_ARG_CACHE_TYPE_K: q8_0      # Use q8_0 quantization for storing key cache
+      LLAMA_ARG_CACHE_TYPE_V: q8_0      # Use q8_0 quantization for storing value cache
+      LLAMA_ARG_FLASH_ATTN: "on"        # Flash attention is an optimisation that increases memory efficiency
+      LLAMA_ARG_LOAD_MODE: auto         # llama chooses model loading mode
       # --- Text-only configuration ---
-      LLAMA_ARG_MMPROJ_AUTO: "false"
+      LLAMA_ARG_MMPROJ_AUTO: "false"    # This model is text-only and does not need a multimodal projector.
+    depends_on:
+      llamacpp-general:
+        condition: service_healthy
+    healthcheck:
+      <<: *model-healthcheck
 
+  # =============================================================================
+  # Optional model servers (extended-models profile)
+  # =============================================================================
+
+  # Lightweight conversational and task model for quick responses and tool use. 
+  # It is a smaller model than the general model and is intended to be used for short interactions where speed is more important than depth of reasoning.
   vllm-quick-chat:
     <<: *vllm-common
     shm_size: 8gb
@@ -172,9 +192,15 @@ services:
       - --tool-call-parser=qwen3_coder
       - --host=0.0.0.0
       - --port=8000
+    depends_on:
+      llamacpp-general:
+        condition: service_healthy
+    healthcheck:
+      <<: *model-healthcheck
     profiles:
       - extended-models
-      
+
+  # Dedicated vision model
   vllm-vision:
     <<: *vllm-common
     shm_size: 12gb
@@ -185,17 +211,67 @@ services:
       - --gpu-memory-utilization=0.45
       - --max-num-seqs=2
       - '--limit-mm-per-prompt={"image":2,"video":0}'
-      - --mm-processor-cache-gb=-1
+      - --mm-processor-cache-gb=0 # Disable the vLLM multimodal processor cache.
       - --host=0.0.0.0
       - --port=8000
+    depends_on:
+      llamacpp-general:
+        condition: service_healthy
     healthcheck:
-      <<: *healthcheck
+      <<: *model-healthcheck
       start_period: 600s
     profiles:
       - extended-models
 
+  # =============================================================================
+  # Disabled alternative model backends
+  # =============================================================================
+  # These services are retained as prototype alternatives.
+
+  # Previous vLLM implementation of the general-model role.
+  vllm-general:
+    <<: *vllm-common
+    shm_size: 16gb
+    command:
+      - --model=/models/Qwen3.6-27B-NVFP4
+      - --served-model-name=general
+      - --max-model-len=16384
+      - --gpu-memory-utilization=0.84
+      - --max-num-seqs=8
+      - --reasoning-parser=qwen3
+      - --enable-auto-tool-choice
+      - --tool-call-parser=qwen3_coder
+      - --host=0.0.0.0
+      - --port=8000
+    healthcheck:
+      <<: *model-healthcheck
+      start_period: 600s
+    profiles:
+      - disabled
+
+  # Previous vLLM implementation of the autocomplete-model role.
+  vllm-autocomplete:
+    <<: *vllm-common
+    image: vllm/vllm-openai:v0.6.6
+    shm_size: 8gb
+    command:
+      - --model=/models/Qwen2.5-Coder-1.5B
+      - --served-model-name=autocomplete
+      - --max-model-len=8192
+      - --gpu-memory-utilization=0.2
+      - --max-num-seqs=16
+      - --host=0.0.0.0
+      - --port=8000
+    profiles:
+      - disabled
+
+  # =============================================================================
+  # Model routing and API gateway
+  # =============================================================================
+
+  # (Internal) Maps constant role-specific ports (e.g. general, autocomplete) to the current internal model containers.
   internal-model-router:
-    image: nginx:alpine
+    image: nginx:1.30.4-alpine3.24
     environment:
       GENERAL_MODEL: http://llamacpp-general:8000
       AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:8000
@@ -207,28 +283,30 @@ services:
         target: /etc/nginx/templates/default.conf.template
         read_only: true
     expose:
-      - "8101"
-      - "8102"
-      - "8103"
-      - "8104"
+      - "8080" # Local NGINX health listener.
+      - "8101" # General model route.
+      - "8102" # Autocomplete model route.
+      - "8103" # Quick-chat model route.
+      - "8104" # Vision model route.
     networks:
       - internal-llm-stack
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
     restart: unless-stopped
+    depends_on:
+      llamacpp-general:
+        condition: service_healthy
+    logging: *json-logging
+    healthcheck: *nginx-healthcheck
 
+  # (Internal) LiteLLM presents all model roles through one OpenAI-compatible API
   internal-model-gateway:
-    image: litellm/litellm:v1.95.1
+    image: litellm/litellm:v1.95.0
     command:
       - --config
       - /app/config.yaml
       - --port
       - "4000"
     environment:
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set}
     volumes:
       - type: bind
         source: ./internal-model-gateway.litellm.config.yaml
@@ -236,14 +314,18 @@ services:
         read_only: true
     expose:
       - "4000"
-    depends_on:
-      - internal-model-router
     networks:
       - internal-llm-stack
     restart: unless-stopped
+    depends_on:
+      internal-model-router:
+        condition: service_healthy
+    logging: *json-logging
+    healthcheck: *litellm-readiness
 
+  # (External) Exposes the internal LiteLLM gateway to external consumers through a controlled NGINX proxy. The proxy is the only container that can reach the internal model stack.
   external-gateway-proxy:
-    image: nginx:alpine
+    image: nginx:1.30.4-alpine3.24
     ports:
       - "${LLM_GATEWAY_IP:-127.0.0.1}:${LLM_GATEWAY_PORT:-8000}:8000"
     volumes:
@@ -251,29 +333,39 @@ services:
         source: ./external-gateway-proxy.nginx.conf
         target: /etc/nginx/conf.d/default.conf
         read_only: true
-    depends_on:
-      - internal-model-gateway
+    expose:
+      - "8080" # Local NGINX health listener; not published to the host.
     networks:
       - exposed
       - internal-llm-stack
     restart: unless-stopped
-  
+    depends_on:
+      internal-model-gateway:
+        condition: service_healthy
+    logging: *json-logging
+    healthcheck: *nginx-healthcheck
+
+  # =============================================================================
+  # User-facing consumers
+  # =============================================================================
+
+  # Browser-based "Chat GPT-like" interface to chat with local models
   openwebui:
     image: ghcr.io/open-webui/open-webui:v0.11.0
     ports:
-      - "${OPENWEBUI_PORT:-3000}:8080"
+      - "${OPENWEBUI_IP:-127.0.0.1}:${OPENWEBUI_PORT:-3000}:8080"
     environment:
       ENABLE_OPENAI_API: "true"
       ENABLE_OLLAMA_API: "false"
       OPENAI_API_BASE_URLS: http://external-gateway-proxy:8000/v1
-      OPENAI_API_KEY: ${LITELLM_MASTER_KEY}
+      OPENAI_API_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set}
       OPENAI_API_CONFIGS: >-
         {
           "0": {
             "enable": true,
             "model_ids": [
               "general",
-              "small-chat",
+              "quick-chat",
               "vision"
             ],
             "tags": [
@@ -282,28 +374,37 @@ services:
           }
         }
       TASK_MODEL_EXTERNAL: general
-      OFFLINE_MODE: true
+      OFFLINE_MODE: "true"
       HF_HUB_OFFLINE: "1"
-      ENABLE_PERSISTENT_CONFIG: "false"
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set}
+      ENABLE_PERSISTENT_CONFIG: "false"     # Environment configuration remains authoritative. Changes to managed settings made in the Open WebUI admin interface are reset on restart.
     volumes:
       - open-webui-data:/app/backend/data
-    depends_on:
-      - external-gateway-proxy
     networks:
       - exposed
-    logging:
-      driver: json-file
-      options:
-        max-size: "50m"
-        max-file: "3"
     restart: unless-stopped
+    depends_on:
+      external-gateway-proxy:
+        condition: service_healthy
+    logging: *json-logging
 
+# =============================================================================
+# Persistent storage
+# =============================================================================
 volumes:
+  # Stores Open WebUI users, conversations, settings, and downloaded local data.
   open-webui-data:
 
+# =============================================================================
+# Networks
+# =============================================================================
 networks:
+  # Bridge used by components that need host/LAN access or normal outbound access.
   exposed:
     driver: bridge
+
+  # Isolated model-serving network. Containers attached only here have no direct
+  # route outside Docker; the external proxy is the controlled bridge between zones.
   internal-llm-stack:
     driver: bridge
     internal: true
