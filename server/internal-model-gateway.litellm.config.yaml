@@ -6,6 +6,10 @@ model_list:
       model: openai/general
       api_base: http://internal-model-router:8101/v1
       api_key: sk-internal  # Placeholder
+    model_info:
+      supports_function_calling: true
+      supports_tool_choice: true
+      supports_reasoning: true
 
   - model_name: autocomplete
     litellm_params:
