@@ -1,0 +1,4 @@
+{
+  "chat.byokUtilityModelDefault": "Main Agent Model",
+  "chat.sessionSync.enabled": false
+}
