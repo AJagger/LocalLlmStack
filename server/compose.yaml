@@ -112,36 +112,52 @@ services:
 
   # Primary general-purpose model. 
   # This service starts first and has first claim on GPU resources; the rest of the active stack waits for it to become healthy.
-  llamacpp-general:
-    <<: *llamacpp-common
-    environment:
-      <<: *llamacpp-common-environment
-      # --- Model configuration ---
-      LLAMA_ARG_MODEL: /models/Qwen3.8-27B-GGUF/Qwen3.8-27B-Q6_K.gguf
-      LLAMA_ARG_ALIAS: general
-      # --- Context & Concurrency configuration ---
-      LLAMA_ARG_CTX_SIZE: "131072"      # Allocate 128K context
-      LLAMA_ARG_N_PARALLEL: "1"         # Concurrent slots. Limit to 1 request (i.e. no concurrency)
-      # --- System resource configuration --- 
-      LLAMA_ARG_N_GPU_LAYERS: "all"     # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT: "off"              # Fail if unable to fit into GPU. "on" when doing dynamic allocation between GPU/CPU.
-      LLAMA_ARG_FIT_TARGET: "1024"      # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model (ignored if ARG_FIT: off)
-      LLAMA_ARG_KV_OFFLOAD: "true"      # Store KV within GPU (true = offload TO GPU, false = remain in system RAM)
-      LLAMA_ARG_CACHE_TYPE_K: q8_0      # Use q8_0 quantization for storing key cache
-      LLAMA_ARG_CACHE_TYPE_V: q8_0      # Use q8_0 quantization for storing value cache
-      LLAMA_ARG_FLASH_ATTN: "on"        # Flash attention is an optimisation that increases memory efficiency
-      LLAMA_ARG_LOAD_MODE: auto         # llama chooses model loading mode
-      LLAMA_ARG_CACHE_RAM: "4096"       # Maximum host RAM, in MiB, for reusable prompt/KV snapshots. Remains in system memory and does not replace the active GPU KV cache.
-      # --- Chat, tools and reasoning ---
-      LLAMA_ARG_JINJA: "true"           # Enable model-provided Jinja chat templates and tool formatting. 
-      LLAMA_ARG_REASONING: auto         # Automatically apply the model's supported reasoning format.
-      LLAMA_ARG_THINK: deepseek         # Return extracted reasoning in the OpenAI-compatible reasoning_content field
-      # --- Text-only configuration ---
-      # LLAMA_ARG_MMPROJ_AUTO: "true"   # Load the matching projector so the general model can accept image content.
-      # LLAMA_ARG_MMPROJ: /models/Qwen3.8-27B-GGUF/mmproj-Qwen3.8-27B-BF16.gguf
+  ninfer-general:
+    image: ${NINFER_IMAGE:-local/ninfer:da49c0d-local1}
+    pull_policy: never
+    expose:
+      - "8000"
+    networks:
+      - internal-llm-stack
+    volumes:
+      - type: bind
+        source: ${MODEL_DIR:?MODEL_DIR must be set in .env}
+        target: /models
+        read_only: true
+    command: [
+      "ninfer-serve",
+      "/models/Qwen3.8-27B-NInfer/qwen3_8_27b_nvfp4.ninfer",
+    
+      "--host", "0.0.0.0",          # Listen on all container interfaces.
+      "--port", "8000",
+      "--model-id", "general",      # Public model name used by LiteLLM.
+    
+      "--max-context", "131072",    # 128K per-request context ceiling.
+      "--kv-capacity", "131072",    # Shared device KV capacity.
+      "--max-concurrency", "1",     # Admit one active request.
+      "--prefill-chunk", "1024",    # Process long prompt prefill in 1K-token chunks
+    
+      "--kv-dtype", "fp8",          # Store KV cache in FP8 on GPU             
+      "--device-state-slots", "1",  # Keep one extra device checkpoint slot beyond the active request guarantee.
+      "--host-state-slots", "8",    # Retain up to eight inactive continuation state images in pinned host RAM.
+      "--host-kv-mib", "4096",      # Reserve 4 GiB of pinned host RAM for reusable KV continuations/prefixes.
+    
+      "--spec", "mtp",              # Load Qwen3.8's MTP speculative-decoding backend.
+      "--draft-tokens", "3",        # Draft three tokens per MTP proposal step.
+      "--lm-head-draft",            # Load the optimized proposal head embedded in the artifact.
+    ]
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1                  # NInfer is a single-GPU runtime.
+              capabilities: [gpu]
+    logging: *json-logging
     healthcheck:
       <<: *model-healthcheck
-      start_period: 600s                # Large model startup may take approximately five minutes.
+      start_period: 600s                # Allow the large artifact and fixed runtime capacity to initialize.
+    restart: unless-stopped
 
   # Dedicated fill-in-the-middle model used by IDE autocomplete.
   llamacpp-autocomplete:
@@ -166,7 +182,7 @@ services:
       # --- Text-only configuration ---
       LLAMA_ARG_MMPROJ_AUTO: "false"    # This model is text-only and does not need a multimodal projector.
     depends_on:
-      llamacpp-general:
+      ninfer-general:
         condition: service_healthy
     healthcheck:
       <<: *model-healthcheck
@@ -193,7 +209,7 @@ services:
       - --host=0.0.0.0
       - --port=8000
     depends_on:
-      llamacpp-general:
+      ninfer-general:
         condition: service_healthy
     healthcheck:
       <<: *model-healthcheck
@@ -215,7 +231,7 @@ services:
       - --host=0.0.0.0
       - --port=8000
     depends_on:
-      llamacpp-general:
+      ninfer-general:
         condition: service_healthy
     healthcheck:
       <<: *model-healthcheck
@@ -273,7 +289,7 @@ services:
   internal-model-router:
     image: nginx:1.30.4-alpine3.24
     environment:
-      GENERAL_MODEL: http://llamacpp-general:8000
+      GENERAL_MODEL: http://ninfer-general:8000
       AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:8000
       QUICK_CHAT_MODEL: http://vllm-quick-chat:8000
       VISION_MODEL: http://vllm-vision:8000
@@ -292,7 +308,7 @@ services:
       - internal-llm-stack
     restart: unless-stopped
     depends_on:
-      llamacpp-general:
+      ninfer-general:
         condition: service_healthy
     logging: *json-logging
     healthcheck: *nginx-healthcheck
