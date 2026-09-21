@@ -1,0 +1,25 @@
+services:
+  chatterbox-tts:
+    build:
+      context: .
+    image: local/chatterbox-tts:0.1.0
+    ports:
+      - "127.0.0.1:8010:8000"
+    volumes:
+      - type: bind
+        source: ${MODEL_DIR:?MODEL_DIR must be set}/audio/tts/chatterbox-nano
+        target: /models/audio/tts/chatterbox-nano
+        read_only: true
+      - type: bind
+        source: ./voices
+        target: /voices
+        read_only: true
+    environment:
+      CHATTERBOX_MODEL_VARIANT: nano
+      CHATTERBOX_MODEL_PATH: /models/audio/tts/chatterbox-nano
+      CHATTERBOX_VOICES_CONFIG: /voices/voices.yaml
+      CHATTERBOX_DEFAULT_VOICE: alloy
+      CHATTERBOX_TORCH_NUM_THREADS: "0"
+      CHATTERBOX_MAX_QUEUED_REQUESTS: "2"
+    init: true
+    restart: unless-stopped

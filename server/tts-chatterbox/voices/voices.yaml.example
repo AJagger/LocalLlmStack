@@ -1,0 +1,17 @@
+# Voice ids deliberately use familiar OpenAI names so Open WebUI can select
+# them even before custom voice discovery is wired through LiteLLM.
+default_voice: alloy
+
+voices:
+  alloy:
+    name: Chatterbox built-in voice
+    source: builtin
+
+  # Reference clips must contain more than five seconds of clean speech.
+  # Paths may be absolute or relative to this file.
+  # nova:
+  #   name: Friendly bright voice
+  #   source: ./nova.wav
+  # onyx:
+  #   name: Calm lower voice
+  #   source: ./onyx.wav

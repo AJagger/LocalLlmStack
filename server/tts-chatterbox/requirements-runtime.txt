@@ -1,0 +1,27 @@
+# Resolve these from the PyTorch CPU wheel index during the Docker build.
+torch==2.6.0+cpu
+torchaudio==2.6.0+cpu
+
+# Minimal English Chatterbox Nano/Turbo inference dependencies. The upstream
+# package is installed with --no-deps so its Gradio and multilingual-only
+# packages do not inflate this headless service image.
+numpy==1.26.4
+librosa==0.11.0
+onnx==1.17.0
+einops==0.8.1
+tqdm==4.67.1
+transformers==5.2.0
+diffusers==0.29.0
+resemble-perth==1.0.1
+conformer==0.3.2
+safetensors==0.5.3
+pydub==0.25.1
+pyloudnorm==0.1.1
+omegaconf==2.3.0
+setuptools<81
+
+fastapi==0.128.2
+uvicorn[standard]==0.48.0
+pydantic-settings==2.14.1
+PyYAML==6.0.3
+soundfile==0.13.1

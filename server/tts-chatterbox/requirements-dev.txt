@@ -1,0 +1,9 @@
+# The test suite injects a fake speech engine and does not need PyTorch or
+# Chatterbox model dependencies.
+numpy==1.26.4
+fastapi==0.128.2
+pydantic-settings==2.14.1
+PyYAML==6.0.3
+soundfile==0.13.1
+httpx==0.28.1
+pytest==9.0.2
