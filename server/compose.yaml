@@ -394,6 +394,7 @@ services:
       HF_HUB_OFFLINE: "1"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set}
       ENABLE_PERSISTENT_CONFIG: "false"     # Environment configuration remains authoritative. Changes to managed settings made in the Open WebUI admin interface are reset on restart.
+      DEFAULT_MODEL_PARAMS: '{"reasoning_effort":"medium"}'
     volumes:
       - open-webui-data:/app/backend/data
     networks:
