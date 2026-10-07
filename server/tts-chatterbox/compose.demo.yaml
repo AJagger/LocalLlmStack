@@ -1,0 +1,22 @@
+services:
+  chatterbox-tts:
+    build: .
+    ports:
+      - "127.0.0.1:8105:8000"
+    environment:
+      CHATTERBOX_MODEL_PATH: /models/chatterbox-turbo
+    volumes:
+      - type: bind
+        source: ${MODEL_DIR:?MODEL_DIR must point to your local model directory}/audio/tts/chatterbox-turbo
+        target: /models/chatterbox-turbo
+        read_only: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready')
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
