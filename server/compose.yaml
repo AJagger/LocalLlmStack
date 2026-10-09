@@ -113,7 +113,7 @@ services:
   # Primary general-purpose model. 
   # This service starts first and has first claim on GPU resources; the rest of the active stack waits for it to become healthy.
   ninfer-general:
-    image: ${NINFER_IMAGE:-local/ninfer:da49c0d-local1}
+    image: ${NINFER_IMAGE:-local/ninfer:da49c0d-curl}
     pull_policy: never
     expose:
       - "8000"
@@ -394,6 +394,7 @@ services:
       HF_HUB_OFFLINE: "1"
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set}
       ENABLE_PERSISTENT_CONFIG: "false"     # Environment configuration remains authoritative. Changes to managed settings made in the Open WebUI admin interface are reset on restart.
+      WEBUI_NAME: "${OPENWEBUI_NAME:-Open WebUI}"
     volumes:
       - open-webui-data:/app/backend/data
     networks:
