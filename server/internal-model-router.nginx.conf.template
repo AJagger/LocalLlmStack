@@ -97,6 +97,30 @@ server {
     }
 }
 
+# Text to speech
+server {
+    listen 8105;
+
+    client_max_body_size 2m;
+
+    location / {
+        set $backend ${SPEECH_MODEL};
+        proxy_pass $backend$request_uri;
+
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_buffering off;
+        proxy_request_buffering off;
+        proxy_cache off;
+
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 1800s;
+        proxy_read_timeout 1800s;
+    }
+}
+
 # Healthcheck
 server {
     listen 8080;

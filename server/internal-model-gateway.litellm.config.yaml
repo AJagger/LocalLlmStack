@@ -29,5 +29,11 @@ model_list:
       api_base: http://internal-model-router:8104/v1
       api_key: sk-internal  # Placeholder
 
+  - model_name: speech
+    litellm_params:
+      model: openai/tts-1
+      api_base: http://internal-model-router:8105/v1
+      api_key: sk-internal
+
 litellm_settings:
   drop_params: false  # Fail if backend does not support all requested parameters. Set to true to ignore unsupported parameters (i.e. in prod).

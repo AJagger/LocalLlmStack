@@ -39,6 +39,7 @@ def readiness():
 
 @app.post("/v1/audio/speech")
 def speech(request: SpeechRequest):
+    print(f"Received speech request: {request.input}")
     waveform, sample_rate = engine.generate(request.input)
     audio = to_wav_bytes(waveform, sample_rate)
     return Response(content=audio, media_type="audio/wav")

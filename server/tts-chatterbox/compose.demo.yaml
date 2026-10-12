@@ -7,7 +7,7 @@ services:
       CHATTERBOX_MODEL_PATH: /models/chatterbox-turbo
     volumes:
       - type: bind
-        source: ${MODEL_DIR:?MODEL_DIR must point to your local model directory}/audio/tts/chatterbox-turbo
+        source: ${MODEL_DIR:?MODEL_DIR must point to your local model directory}/chatterbox-turbo
         target: /models/chatterbox-turbo
         read_only: true
     healthcheck:

@@ -187,6 +187,35 @@ services:
     healthcheck:
       <<: *model-healthcheck
 
+  # CPU-only text-to-speech service.
+  chatterbox-tts:
+    build:
+      context: ./tts-chatterbox
+    expose:
+      - "8000"
+    environment:
+      CHATTERBOX_MODEL_PATH: /models/chatterbox-turbo
+    volumes:
+      - type: bind
+        source: ${MODEL_DIR:?MODEL_DIR must be set in .env}
+        target: /models
+        read_only: true
+    networks:
+      - internal-llm-stack
+    restart: unless-stopped
+    logging: *json-logging
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5)
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 300s
+
+
   # =============================================================================
   # Optional model servers (extended-models profile)
   # =============================================================================
@@ -293,6 +322,7 @@ services:
       AUTOCOMPLETE_MODEL: http://llamacpp-autocomplete:8000
       QUICK_CHAT_MODEL: http://vllm-quick-chat:8000
       VISION_MODEL: http://vllm-vision:8000
+      SPEECH_MODEL: http://chatterbox-tts:8000
     volumes:
       - type: bind
         source: ./internal-model-router.nginx.conf.template
@@ -304,11 +334,14 @@ services:
       - "8102" # Autocomplete model route.
       - "8103" # Quick-chat model route.
       - "8104" # Vision model route.
+      - "8105" # Text-to-speech route.
     networks:
       - internal-llm-stack
     restart: unless-stopped
     depends_on:
       ninfer-general:
+        condition: service_healthy
+      chatterbox-tts:
         condition: service_healthy
     logging: *json-logging
     healthcheck: *nginx-healthcheck
@@ -395,7 +428,14 @@ services:
       WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?WEBUI_SECRET_KEY must be set}
       ENABLE_PERSISTENT_CONFIG: "false"     # Environment configuration remains authoritative. Changes to managed settings made in the Open WebUI admin interface are reset on restart.
       WEBUI_NAME: "${OPENWEBUI_NAME:-Open WebUI}"
-      DEFAULT_MODEL_PARAMS: '{"reasoning_effort":"medium"}'
+      #DEFAULT_MODEL_PARAMS: '{"reasoning_effort":"medium"}'
+      AUDIO_TTS_ENGINE: openai
+      AUDIO_TTS_OPENAI_API_BASE_URL: http://external-gateway-proxy:8000/v1
+      AUDIO_TTS_OPENAI_API_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set}
+      AUDIO_TTS_MODEL: speech
+      AUDIO_TTS_VOICE: alloy
+      AUDIO_TTS_OPENAI_PARAMS: '{"response_format":"wav"}'
+      AUDIO_TTS_SPLIT_ON: "none"
     volumes:
       - open-webui-data:/app/backend/data
     networks:

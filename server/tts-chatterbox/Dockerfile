@@ -23,7 +23,7 @@ RUN python -m pip install \
 COPY requirements.txt .
 RUN python -m pip install -r requirements.txt
 
-COPY chatterbox_api ./chatterbox_api
+COPY api ./chatterbox_api
 
 EXPOSE 8000
 

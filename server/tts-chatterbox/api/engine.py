@@ -10,7 +10,6 @@ class ChatterboxEngine:
         self.model = ChatterboxTurboTTS.from_local(
             self.model_path,
             device="cpu",
-            nano=False,
         )
 
     def generate(self, text: str):
