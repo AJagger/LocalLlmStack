@@ -39,7 +39,12 @@ def readiness():
 
 @app.post("/v1/audio/speech")
 def speech(request: SpeechRequest):
-    print(f"Received speech request: {request.input}")
+    if not request.input or not request.input.strip():
+        return Response(content=b"", media_type="audio/wav")
+    
+    print(f"[start] {request.input!r}", flush=True)
     waveform, sample_rate = engine.generate(request.input)
+    print(f"[done]  {request.input!r}", flush=True)
+
     audio = to_wav_bytes(waveform, sample_rate)
     return Response(content=audio, media_type="audio/wav")
