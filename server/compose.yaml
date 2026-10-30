@@ -408,6 +408,25 @@ services:
       ENABLE_OLLAMA_API: "false"
       OPENAI_API_BASE_URLS: http://external-gateway-proxy:8000/v1
       OPENAI_API_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY must be set}
+      TERMINAL_SERVER_CONNECTIONS: >-
+        [
+          {
+            "id": "terminals",
+            "name": "Code Terminal",
+            "url": "http://terminals:3000",
+            "key": "${TERMINALS_API_KEY:?TERMINALS_API_KEY must be set}",
+            "auth_type": "bearer",
+            "config": {
+              "access_grants": [
+                {"principal_type": "user", "principal_id": "*", "permission": "read"}
+              ],
+              "contexts": {
+                "chat": {"context_id": "chat_id"},
+                "automation": false
+              }
+            }
+          }
+        ]
       OPENAI_API_CONFIGS: >-
         {
           "0": {
@@ -440,10 +459,28 @@ services:
       - open-webui-data:/app/backend/data
     networks:
       - exposed
+      - isolated-openwebui-terminals
     restart: unless-stopped
     depends_on:
       external-gateway-proxy:
         condition: service_healthy
+    logging: *json-logging
+
+  # Provides isolated Open Terminal workspaces to Open WebUI.
+  openwebui-terminals-sandbox:
+    image: ghcr.io/open-webui/terminals:latest
+    environment:
+      TERMINALS_BACKEND: docker
+      TERMINALS_API_KEY: ${TERMINALS_API_KEY:?TERMINALS_API_KEY must be set}
+      TERMINALS_IMAGE: ghcr.io/open-webui/open-terminal:latest
+      TERMINALS_NETWORK: openwebui-terminals
+      TERMINALS_IDLE_TIMEOUT_MINUTES: "30"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - terminals-data:/app/data
+    networks:
+      - isolated-openwebui-terminals
+    restart: unless-stopped
     logging: *json-logging
 
 # =============================================================================
@@ -452,6 +489,8 @@ services:
 volumes:
   # Stores Open WebUI users, conversations, settings, and downloaded local data.
   open-webui-data:
+  # Stores Terminals orchestrator state.
+  terminals-data:
 
 # =============================================================================
 # Networks
@@ -464,5 +503,12 @@ networks:
   # Isolated model-serving network. Containers attached only here have no direct
   # route outside Docker; the external proxy is the controlled bridge between zones.
   internal-llm-stack:
+    driver: bridge
+    internal: true
+
+  # Shared only by Open WebUI, the orchestrator, and its workspaces.
+  # Workspaces do not receive general outbound or model-network access.
+  isolated-openwebui-terminals:
+    name: openwebui-terminals
     driver: bridge
     internal: true
