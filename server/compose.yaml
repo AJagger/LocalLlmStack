@@ -413,7 +413,7 @@ services:
           {
             "id": "terminals",
             "name": "Code Terminal",
-            "url": "http://terminals:3000",
+            "url": "http://openwebui-terminals-orchestrator:3000",
             "key": "${TERMINALS_API_KEY:?TERMINALS_API_KEY must be set}",
             "auth_type": "bearer",
             "config": {
@@ -467,7 +467,7 @@ services:
     logging: *json-logging
 
   # Provides isolated Open Terminal workspaces to Open WebUI.
-  openwebui-terminals-sandbox:
+  openwebui-terminals-orchestrator:
     image: ghcr.io/open-webui/terminals:latest
     environment:
       TERMINALS_BACKEND: docker
