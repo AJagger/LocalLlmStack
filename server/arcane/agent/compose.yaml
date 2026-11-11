@@ -1,0 +1,20 @@
+# Arcane Docker Compose Configuration
+# Generated at 11/11/2026, 17:24:13
+
+services:
+  arcane-agent:
+    image: ghcr.io/getarcaneapp/agent:latest
+    container_name: arcane-agent
+    ports:
+      - '3553:3553'
+    environment:
+      - AGENT_MODE=true
+      - AGENT_TOKEN=<your-agent-token>
+      - MANAGER_API_URL=http://<manager-host>:3552
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - arcane-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  arcane-data:
