@@ -1,0 +1,106 @@
+# Arcane Docker Compose Configuration
+# Generated at 11/11/2026, 17:24:13
+
+services:
+  docker-socket-proxy:
+    image: wollomatic/socket-proxy:1.13.1
+    container_name: arcane-docker-proxy
+    user: '0:0'
+    command:
+      - '-listenip=0.0.0.0'
+      - '-allowfrom=arcane,arcane-upgrader'
+      - '-allowhealthcheck'
+      - '-allowGET=(/v[\d.]+)?/_ping'
+      - '-allowGET=(/v[\d.]+)?/events(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/version'
+      - '-allowGET=(/v[\d.]+)?/info(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/system/df'
+      - '-allowGET=(/v[\d.]+)?/containers(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/exec(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/images(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/networks(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/volumes(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/distribution(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/swarm(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/nodes(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/services(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/tasks(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/secrets(/.*)?'
+      - '-allowGET=(/v[\d.]+)?/configs(/.*)?'
+      - '-allowHEAD=(/v[\d.]+)?/_ping'
+      - '-allowHEAD=(/v[\d.]+)?/version'
+      - '-allowPOST=(/v[\d.]+)?/containers(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/exec(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/images(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/networks(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/volumes(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/commit'
+      - '-allowPOST=(/v[\d.]+)?/build(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/session'
+      - '-allowPOST=(/v[\d.]+)?/grpc'
+      - '-allowPOST=(/v[\d.]+)?/auth'
+      - '-allowPOST=(/v[\d.]+)?/swarm(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/nodes(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/services(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/secrets(/.*)?'
+      - '-allowPOST=(/v[\d.]+)?/configs(/.*)?'
+      - '-allowPUT=(/v[\d.]+)?/containers(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/containers(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/images(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/networks(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/volumes(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/nodes(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/services(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/secrets(/.*)?'
+      - '-allowDELETE=(/v[\d.]+)?/configs(/.*)?'
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ['CMD', './healthcheck']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    networks:
+      - arcane-internal
+    restart: unless-stopped
+
+  arcane:
+    image: ghcr.io/getarcaneapp/manager:latest
+    container_name: arcane
+    ports:
+      - '3552:3552'
+    volumes:
+      - arcane-data:/app/data
+    environment:
+      - APP_URL=http://localhost:3552
+      - PUID=1000
+      - PGID=1000
+      - TZ=UTC
+      - ENCRYPTION_KEY=59da44eb74ba3c33bd93faf34d31a463e7a3077e1e2d124ed7ed40410970e11d
+      - DOCKER_HOST=tcp://docker-socket-proxy:2375
+    networks:
+      - arcane-internal
+    depends_on:
+      - docker-socket-proxy
+    cgroup: host
+    healthcheck:
+      test: ['CMD', './arcane', 'health', '--timeout', '2s']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+networks:
+  arcane-internal:
+    driver: bridge
+    name: arcane-internal
+
+volumes:
+  arcane-data:
+    name: arcane-data
