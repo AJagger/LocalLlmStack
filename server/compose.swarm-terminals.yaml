@@ -1,0 +1,58 @@
+# =============================================================================
+# Common configuration
+# =============================================================================
+
+# Apply bounded Docker JSON-file logging to every long-running service so that
+# local logs cannot grow without limit.
+x-json-logging: &json-logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
+services:
+  # =============================================================================
+  # Open WebUI terminal workspaces
+  # =============================================================================
+
+  # Provides isolated Open Terminal workspaces to Open WebUI.
+  # The service name is the DNS name Open WebUI resolves on the shared
+  # openwebui-terminals overlay network.
+  openwebui-terminals-orchestrator:
+    image: ghcr.io/open-webui/terminals:latest
+    environment:
+      TERMINALS_BACKEND: docker
+      TERMINALS_API_KEY: ${TERMINALS_API_KEY:?TERMINALS_API_KEY must be set}
+      TERMINALS_IMAGE: ghcr.io/open-webui/open-terminal:latest
+      TERMINALS_NETWORK: openwebui-terminals
+      TERMINALS_IDLE_TIMEOUT_MINUTES: "30"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - terminals-data:/app/data
+    networks:
+      - isolated-openwebui-terminals
+    restart: unless-stopped
+    logging: *json-logging
+
+# =============================================================================
+# Persistent storage
+# =============================================================================
+volumes:
+  # Stores Terminals orchestrator state.
+  terminals-data:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  # Shared only by Open WebUI, the orchestrator, and its workspaces.
+  # Workspaces do not receive general outbound or model-network access.
+  #
+  # The explicit name makes this the same swarm-wide overlay network that
+  # compose.swarm-core.yaml creates; the driver and properties must match the
+  # existing network, so deploy swarm-core first.
+  isolated-openwebui-terminals:
+    name: openwebui-terminals
+    driver: overlay
+    attachable: true
+    internal: true

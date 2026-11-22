@@ -1,5 +1,7 @@
 .continue
 .vs
+.github
 test
 *.env
 *.env.swarm-core
+*.env.swarm-terminals

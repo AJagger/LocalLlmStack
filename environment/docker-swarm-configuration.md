@@ -98,7 +98,38 @@ sudo docker service ls
 sudo docker service ps my-service
 ```
 
-## 7. Managing nodes
+## 7. Deploying the split stacks
+
+The stack is split into separate Compose files, each deployed as its own swarm stack:
+
+| Stack file                     | Contents                                                        |
+| ------------------------------ | --------------------------------------------------------------- |
+| `server/compose.swarm-core.yaml`      | Model servers, gateway, and Open WebUI. Creates the `openwebui-terminals` overlay network. |
+| `server/compose.swarm-terminals.yaml` | Open WebUI Terminals orchestrator. Connects to the existing `openwebui-terminals` overlay network. |
+
+Deploy the core stack first so the shared overlay network exists, then deploy the terminals stack. Both must be run on a swarm manager:
+
+```bash
+cd server
+
+# Core stack (models, gateway, Open WebUI)
+cp .env.swarm-core.template .env.swarm-core
+# Fill in the values, then:
+docker stack deploy -c compose.swarm-core.yaml --with-registry-auth llm-stack-swarm-core
+
+# Terminals orchestrator stack
+cp .env.swarm-terminals.template .env.swarm-terminals
+# Use the same TERMINALS_API_KEY as the core stack, then:
+docker stack deploy -c compose.swarm-terminals.yaml --with-registry-auth llm-stack-swarm-terminals
+```
+
+Notes:
+
+- The `openwebui-terminals` network is a swarm-wide overlay, so Open WebUI (core stack) and the orchestrator (terminals stack) can reach each other even when they are scheduled on different nodes.
+- The orchestrator manages terminal workspaces through the Docker socket of the node it is scheduled on. With a single replica, workspaces are created on that node; add replicas to spread workspaces across nodes.
+- The `terminals-data` volume is a local volume on the orchestrator's node.
+
+## 8. Managing nodes
 
 ```bash
 # Drain a node (no new tasks scheduled; existing ones finish)
@@ -111,7 +142,7 @@ sudo docker node update --availability active <node-name>
 sudo docker node rm <node-name>
 ```
 
-## 8. Leaving / tearing down the swarm
+## 9. Leaving / tearing down the swarm
 
 On a worker:
 
