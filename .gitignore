@@ -1,2 +1,5 @@
 .continue
 .vs
+test
+*.env
+*.env.swarm-core

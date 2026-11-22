@@ -122,7 +122,7 @@ services:
       LLAMA_ARG_CTX_SIZE: "8192"        # Allocate 8K context        
       LLAMA_ARG_N_PARALLEL: "1"         # Concurrent slots. Limit to 1 request (i.e. no concurrency)
       # --- System resource configuration ---  
-      LLAMA_ARG_N_GPU_LAYERS: "all"     # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
+      LLAMA_ARG_N_GPU_LAYERS: "auto"     # "all" Model layers within the GPU. "auto" for dynamic allocation between GPU/CPU.
       LLAMA_ARG_FIT: "on"               # Spill into system RAM and CPU if necessary.
       LLAMA_ARG_FIT_TARGET: "1024"      # Retain 1024 MB of free VRAM on GPU when dynamically fitting the model
       LLAMA_ARG_KV_OFFLOAD: "false"     # Store KV within System RAM (true = offload TO GPU, false = remain in system RAM)
@@ -145,7 +145,7 @@ services:
       - --served-model-name=quick-chat
       - --language-model-only
       - --max-model-len=8192
-      - --gpu-memory-utilization=0.60
+      - --gpu-memory-utilization=0.70
       - --max-num-seqs=8
       - --reasoning-parser=qwen3
       - --enable-auto-tool-choice
